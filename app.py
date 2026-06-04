@@ -4,6 +4,11 @@ from datetime import datetime
 import streamlit as st
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ==================================================
 # PAGE CONFIG
@@ -18,7 +23,7 @@ st.set_page_config(
 # ==================================================
 # CUSTOM CSS (современный красивый дизайн)
 # ==================================================
-st.markdown("""
+st.markdown('''
 <style>
     .stApp {
         background: linear-gradient(180deg, #0A0C14 0%, #0F1117 100%);
@@ -74,7 +79,7 @@ st.markdown("""
         -webkit-text-fill-color: transparent;
     }
 </style>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
 # ==================================================
 # DATABASE
@@ -82,24 +87,54 @@ st.markdown("""
 DB_FILE = "qa_platform.db"
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS analyses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT,
-            role TEXT,
-            prompt TEXT,
-            response TEXT,
-            problems INTEGER,
-            questions INTEGER,
-            testability INTEGER,
-            uncertainty INTEGER,
+    """Инициализация базы данных с обработкой ошибок"""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS analyses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT,
+                    role TEXT,
+                    prompt TEXT,
+                    response TEXT,
+                    problems INTEGER,
+                    questions INTEGER,
+                    testability INTEGER,
+                    uncertainty INTEGER,
             risk INTEGER
-        )
-    """)
-    conn.commit()
-    conn.close()
+                )
+            ''')
+            conn.commit()
+            logger.info("База данных инициализирована успешно")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка инициализации БД: {e}")
+        st.error(f"Ошибка базы данных: {e}")
+
+def save_analysis(role, prompt, response, problems=0, questions=0, testability=0, uncertainty=0, risk=0):
+    """Сохранение анализа в базу данных"""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO analyses (created_at, role, prompt, response, problems, questions, testability, uncertainty, risk) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    datetime.now().isoformat(),
+            role,
+            prompt,
+            response,
+            problems,
+            questions,
+            testability,
+            uncertainty,
+            risk
+                )
+            )
+            conn.commit()
+            logger.info("Анализ сохранён в БД")
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка сохранения в БД: {e}")
+        st.warning(f"Не удалось сохранить в БД: {e}")
 
 init_db()
 
@@ -131,7 +166,17 @@ with st.sidebar:
     selected_role = st.selectbox("Выберите режим", list(ROLES.keys()))
     
     st.divider()
-    temperature = st.slider("Креативность", 0.0, 1.2, 0.7, 0.05)
+    temperature = st.slider("Креативность", 0.0, 1.0, 0.7, 0.05)  # Ограничили максимум до 1.0
+    
+    st.divider()
+    st.subheader("📊 Статистика")
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
+            st.metric("Всего анализов", count)
+    except Exception as e:
+        st.caption("Статистика недоступна")
+        logger.warning(f"Ошибка получения статистики: {e}")
     
     if st.button("🧹 Очистить чат", use_container_width=True):
         st.session_state.messages = []
@@ -181,35 +226,4 @@ for msg in st.session_state.messages[1:]:  # skip system
         st.markdown(msg["content"])
 
 # Input
-user_input = st.chat_input("Опишите задачу или вставьте требования...")
-
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    
-    with st.chat_message("user"):
-        st.markdown(user_input)
-    
-    with st.chat_message("assistant"):
-        with st.spinner("AVSBOT думает..."):
-            try:
-                credentials = st.secrets["GIGA_CREDENTIALS"]
-                
-                with GigaChat(credentials=credentials, verify_ssl_certs=False) as giga:
-                    giga_messages = [
-                        Messages(role=m["role"], content=m["content"])
-                        for m in st.session_state.messages
-                    ]
-                    
-                    response = giga.chat(Chat(
-                        messages=giga_messages, 
-                        temperature=temperature
-                    ))
-                    
-                    answer = response.choices[0].message.content
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-                    st.markdown(answer)
-                    
-            except Exception as e:
-                st.error(f"Ошибка API: {e}")
-
-# TODO: Добавить автооценку ответа (следующий шаг)
+user_input = st.chat_
