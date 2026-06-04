@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from gigachat import GigaChat
-from gigachat.models import Chat, Messages, MessagesRole
+from gigachat.models import Chat, Messages
 
 # ==================================================
 # PAGE CONFIG
@@ -18,47 +18,41 @@ st.set_page_config(
     page_title="AVSBOT QA Platform",
     page_icon="🚀",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"   # ✅ FIX: было collapsed
 )
 
 # ==================================================
-# DATABASE
-# ==================================================
-
-DB_FILE = "qa_platform.db"
-
-# ==================================================
-# RESPONSIVE MOBILE UI
+# CSS
 # ==================================================
 
 st.markdown("""
 <style>
 
+/* ❌ FIX: НЕ скрываем header — иначе пропадает кнопка меню */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 
+/* header НЕ скрываем !!! */
+
+/* layout */
 .block-container {
     max-width: 1450px;
     padding-top: 0.5rem;
     padding-bottom: 6rem;
 }
 
-/* ===== TYPOGRAPHY ===== */
-
+/* typography */
 html, body, [class*="css"] {
     font-size: 15px;
 }
 
-/* ===== CHAT ===== */
-
+/* chat */
 .stChatMessage {
     border-radius: 16px;
     padding: 10px;
 }
 
-/* ===== BUTTONS ===== */
-
+/* buttons */
 .stButton button {
     width: 100%;
     border-radius: 14px;
@@ -67,25 +61,19 @@ html, body, [class*="css"] {
     border: 1px solid #333;
 }
 
-/* ===== INPUTS ===== */
-
+/* inputs */
 .stTextArea textarea {
     border-radius: 14px;
 }
 
-.stChatInput textarea {
-    font-size: 16px !important;
-}
-
-/* ===== SIDEBAR ===== */
-
+/* sidebar */
 section[data-testid="stSidebar"] {
     background: #0E1117;
     border-right: 1px solid #222;
+    min-width: 320px;
 }
 
-/* ===== METRICS ===== */
-
+/* metrics */
 [data-testid="metric-container"] {
     border-radius: 14px;
     padding: 10px;
@@ -93,209 +81,28 @@ section[data-testid="stSidebar"] {
     background: #161A23;
 }
 
-/* ===== FILE UPLOADER ===== */
-
-[data-testid="stFileUploader"] {
-    border-radius: 14px;
-}
-
-/* ===== MOBILE ===== */
-
+/* mobile */
 @media (max-width: 768px) {
 
     .block-container {
         padding-left: 0.8rem;
         padding-right: 0.8rem;
-        padding-top: 0.3rem;
     }
 
-    h1 {
-        font-size: 28px !important;
-    }
-
-    h2 {
-        font-size: 22px !important;
-    }
-
-    h3 {
-        font-size: 18px !important;
-    }
-
-    /* SIDEBAR OVERLAY */
-
-    section[data-testid="stSidebar"] {
-        width: 85vw !important;
-        min-width: 85vw !important;
-    }
-
-    /* BIG MOBILE BUTTONS */
-
-    .stButton button {
-        height: 54px;
-        font-size: 16px;
-    }
-
-    /* CHAT INPUT */
-
-    .stChatInputContainer {
-        background: #0E1117;
-        padding: 10px;
-        z-index: 999;
-    }
-
-    /* TABLES */
-
-    .stDataFrame {
-        overflow-x: auto;
-    }
-
-    iframe {
-        width: 100% !important;
-    }
-}
-
-/* ===== DESKTOP ===== */
-
-@media (min-width: 769px) {
-
-    section[data-testid="stSidebar"] {
-        min-width: 320px;
-    }
+    h1 { font-size: 28px !important; }
+    h2 { font-size: 22px !important; }
 }
 
 </style>
 """, unsafe_allow_html=True)
 
 # ==================================================
-# PROMPTS
+# DB
 # ==================================================
 
-DEFAULT_ANALYST_PROMPT = """
-Ты — Senior QA Analyst.
-
-Структура ответа:
-
-📌 Резюме
-❗ Проблемы
-❓ Вопросы
-✅ Чек-лист
-⏱ Оценка сроков
-
-В конце:
-
-МЕТРИКИ_СТАРТ
-Проблем: [число]
-Вопросов: [число]
-Тестируемость: [0-100]
-Неопределенность: [0-100]
-Риск: [0-100]
-МЕТРИКИ_КОНЕЦ
-"""
-
-DEFAULT_TESTCASE_PROMPT = """
-Ты — Senior QA Engineer.
-
-Пиши:
-- тест-кейсы
-- негативные проверки
-- edge-cases
-- API тесты
-- security проверки
-
-Используй markdown таблицы.
-"""
-
-DEFAULT_AUTOTEST_REVIEW_PROMPT = """
-Ты — Senior SDET.
-
-Проведи review автотестов.
-
-Проверь:
-- flaky tests
-- плохие assertions
-- sleeps/waits
-- архитектуру
-- page object issues
-- maintainability
-- retry problems
-- unstable selectors
-
-Ответ:
-1. Общая оценка
-2. Проблемы
-3. Улучшения
-4. Refactoring
-5. Risk score
-"""
-
-DEFAULT_CODE_REVIEW_PROMPT = """
-Ты — Senior Software Engineer.
-
-Проведи code review.
-
-Проверь:
-- SOLID
-- архитектуру
-- security
-- performance
-- error handling
-- async issues
-- duplication
-- maintainability
-- code smells
-
-Ответ должен быть структурирован.
-"""
-
-# ==================================================
-# ROLES
-# ==================================================
-
-ROLES = {
-
-    "Анализ требований": {
-        "prompt": DEFAULT_ANALYST_PROMPT,
-        "templates": [
-            "Проверь API авторизации",
-            "Найди проблемы корзины",
-            "Оцени платежный flow"
-        ]
-    },
-
-    "Генератор тест-кейсов": {
-        "prompt": DEFAULT_TESTCASE_PROMPT,
-        "templates": [
-            "Сгенерируй негативные тесты",
-            "Напиши E2E flow",
-            "Сделай smoke checklist"
-        ]
-    },
-
-    "Ревью автотестов": {
-        "prompt": DEFAULT_AUTOTEST_REVIEW_PROMPT,
-        "templates": [
-            "Проведи review Playwright тестов",
-            "Найди flaky проблемы",
-            "Проверь архитектуру framework"
-        ]
-    },
-
-    "Code Review": {
-        "prompt": DEFAULT_CODE_REVIEW_PROMPT,
-        "templates": [
-            "Проведи review Python кода",
-            "Проверь безопасность API",
-            "Найди code smells"
-        ]
-    }
-}
-
-# ==================================================
-# DATABASE INIT
-# ==================================================
+DB_FILE = "qa_platform.db"
 
 def init_db():
-
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
 
@@ -320,490 +127,92 @@ def init_db():
 init_db()
 
 # ==================================================
-# HELPERS
+# ROLES
 # ==================================================
 
-def extract_metrics(text):
-
-    metrics = {
-        "problems": 0,
-        "questions": 0,
-        "testability": 0,
-        "uncertainty": 0,
-        "risk": 0
+ROLES = {
+    "Анализ требований": {
+        "prompt": "Ты — Senior QA Analyst.",
+        "templates": ["Проверь API", "Найди баги", "Оцени риски"]
+    },
+    "Генератор тестов": {
+        "prompt": "Ты — QA Engineer.",
+        "templates": ["Сгенерируй тесты", "E2E сценарии", "Негативные кейсы"]
     }
-
-    try:
-
-        if "МЕТРИКИ_СТАРТ" in text:
-
-            block = text.split(
-                "МЕТРИКИ_СТАРТ"
-            )[1].split(
-                "МЕТРИКИ_КОНЕЦ"
-            )[0]
-
-            patterns = {
-                "problems": r'Проблем[^\d]*(\d+)',
-                "questions": r'Вопросов[^\d]*(\d+)',
-                "testability": r'Тестируемость[^\d]*(\d+)',
-                "uncertainty": r'Неопределенность[^\d]*(\d+)',
-                "risk": r'Риск[^\d]*(\d+)'
-            }
-
-            for key, pattern in patterns.items():
-
-                match = re.search(pattern, block)
-
-                if match:
-                    metrics[key] = int(match.group(1))
-
-    except:
-        pass
-
-    return metrics
-
-
-def save_analysis(role, prompt, response, metrics):
-
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
-    c.execute("""
-    INSERT INTO analyses (
-        created_at,
-        role,
-        prompt,
-        response,
-        problems,
-        questions,
-        testability,
-        uncertainty,
-        risk
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        role,
-        prompt,
-        response,
-        metrics["problems"],
-        metrics["questions"],
-        metrics["testability"],
-        metrics["uncertainty"],
-        metrics["risk"]
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-def load_history():
-
-    conn = sqlite3.connect(DB_FILE)
-
-    df = pd.read_sql_query(
-        "SELECT * FROM analyses ORDER BY id DESC",
-        conn
-    )
-
-    conn.close()
-
-    return df
-
-
-def read_uploaded_file(uploaded_file):
-
-    ext = uploaded_file.name.split(".")[-1].lower()
-
-    if ext in [
-        "txt",
-        "md",
-        "py",
-        "json",
-        "yaml",
-        "yml"
-    ]:
-        return uploaded_file.read().decode("utf-8")
-
-    elif ext == "docx":
-
-        from docx import Document
-
-        doc = Document(uploaded_file)
-
-        return "\n".join([
-            p.text for p in doc.paragraphs
-        ])
-
-    elif ext == "pdf":
-
-        import fitz
-
-        pdf = fitz.open(
-            stream=uploaded_file.read(),
-            filetype="pdf"
-        )
-
-        text = ""
-
-        for page in pdf:
-            text += page.get_text()
-
-        return text
-
-    return ""
+}
 
 # ==================================================
 # SIDEBAR
 # ==================================================
 
 with st.sidebar:
-
     st.title("🚀 AVSBOT")
 
-    st.caption("QA AI Platform")
-
-    selected_role = st.selectbox(
-        "Режим",
-        list(ROLES.keys())
-    )
-
-    if f"prompt_{selected_role}" not in st.session_state:
-
-        st.session_state[
-            f"prompt_{selected_role}"
-        ] = ROLES[selected_role]["prompt"]
+    selected_role = st.selectbox("Режим", list(ROLES.keys()))
 
     current_prompt = st.text_area(
         "System Prompt",
-        value=st.session_state[
-            f"prompt_{selected_role}"
-        ],
-        height=260
+        value=ROLES[selected_role]["prompt"],
+        height=200
     )
 
-    st.session_state[
-        f"prompt_{selected_role}"
-    ] = current_prompt
+    temperature = st.slider("Креативность", 0.1, 1.2, 0.7)
 
-    temperature = st.slider(
-        "Креативность",
-        0.1,
-        1.2,
-        0.7,
-        0.1
-    )
-
-    if st.button(
-        "🧹 Очистить чат",
-        use_container_width=True
-    ):
+    if st.button("🧹 Очистить чат"):
         st.session_state.messages = []
         st.rerun()
 
-    st.divider()
-
-    history_df = load_history()
-
-    st.metric(
-        "Всего анализов",
-        len(history_df)
-    )
-
 # ==================================================
-# MAIN
-# ==================================================
-
-st.title("🛡️ QA AI Platform")
-
-st.caption(
-    "☰ Открой меню в левом верхнем углу для выбора режима"
-)
-
-if "last_metrics" not in st.session_state:
-    st.session_state.last_metrics = None
-
-# ==================================================
-# DASHBOARD
-# ==================================================
-
-if st.session_state.last_metrics:
-
-    st.subheader("📊 Quality Dashboard")
-
-    m = st.session_state.last_metrics
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-
-    c1.metric("❗ Проблемы", m["problems"])
-    c2.metric("❓ Вопросы", m["questions"])
-    c3.metric(
-        "🧪 Тестируемость",
-        f'{m["testability"]}%'
-    )
-    c4.metric(
-        "🌫 Неопределенность",
-        f'{m["uncertainty"]}%'
-    )
-    c5.metric(
-        "🔥 Риск",
-        f'{m["risk"]}%'
-    )
-
-    chart_df = pd.DataFrame({
-        "Metric": [
-            "Testability",
-            "Uncertainty",
-            "Risk"
-        ],
-        "Value": [
-            m["testability"],
-            m["uncertainty"],
-            m["risk"]
-        ]
-    })
-
-    fig = px.bar(
-        chart_df,
-        x="Metric",
-        y="Value",
-        title="Risk Analysis"
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-# ==================================================
-# CHAT STATE
+# STATE
 # ==================================================
 
 if "messages" not in st.session_state:
-
     st.session_state.messages = [
-        {
-            "role": MessagesRole.SYSTEM,
-            "content": current_prompt
-        }
+        {"role": "system", "content": current_prompt}
     ]
 
 st.session_state.messages[0]["content"] = current_prompt
 
 # ==================================================
-# QUICK ACTIONS
+# UI
 # ==================================================
 
-st.write("### 💡 Быстрые действия")
-
-templates = ROLES[selected_role]["templates"]
-
-cols = st.columns(3)
-
-template_prompt = ""
-
-for i, template in enumerate(templates):
-
-    if cols[i].button(
-        template,
-        use_container_width=True
-    ):
-        template_prompt = template
+st.title("🛡️ QA AI Platform")
 
 # ==================================================
-# FILE UPLOAD
+# INPUT
 # ==================================================
 
-uploaded_file = st.file_uploader(
-    "📎 Загрузить файл",
-    type=[
-        "txt",
-        "md",
-        "pdf",
-        "docx",
-        "py",
-        "json",
-        "yaml",
-        "yml"
-    ]
-)
+user_input = st.chat_input("Введите запрос...")
 
-file_context = ""
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
-if uploaded_file:
-    file_context = read_uploaded_file(
-        uploaded_file
-    )
+    try:
+        credentials = st.secrets["GIGA_CREDENTIALS"]
 
-# ==================================================
-# USER INPUT
-# ==================================================
+        with GigaChat(credentials=credentials, verify_ssl_certs=False) as giga:
 
-user_input = st.chat_input(
-    "Введите требования, код или автотесты..."
-)
-
-final_prompt = (
-    user_input
-    if user_input
-    else template_prompt
-)
-
-# ==================================================
-# AI REQUEST
-# ==================================================
-
-if final_prompt:
-
-    if file_context:
-
-        final_prompt = f"""
-Контекст файла:
-{file_context}
-
-Запрос:
-{final_prompt}
-"""
-
-    st.session_state.messages.append({
-        "role": "user",
-        "content": final_prompt
-    })
-
-    with st.spinner(
-        "🧠 AI анализирует данные..."
-    ):
-
-        try:
-
-            credentials = st.secrets[
-                "GIGA_CREDENTIALS"
+            giga_messages = [
+                Messages(role=m["role"], content=m["content"])
+                for m in st.session_state.messages
             ]
 
-            # FIX SSL ERROR
-            with GigaChat(
-                credentials=credentials,
-                verify_ssl_certs=False
-            ) as giga:
+            response = giga.chat(Chat(messages=giga_messages, temperature=temperature))
 
-                giga_messages = [
+            answer = response.choices[0].message.content
 
-                    Messages(
-                        role=m["role"],
-                        content=m["content"]
-                    )
+            st.session_state.messages.append(
+                {"role": "assistant", "content": answer}
+            )
 
-                    for m in st.session_state.messages
-                ]
-
-                response = giga.chat(
-                    Chat(
-                        messages=giga_messages,
-                        temperature=temperature
-                    )
-                )
-
-                bot_response = response.choices[
-                    0
-                ].message.content
-
-                metrics = extract_metrics(
-                    bot_response
-                )
-
-                st.session_state.last_metrics = metrics
-
-                cleaned_response = bot_response.split(
-                    "МЕТРИКИ_СТАРТ"
-                )[0].strip()
-
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": cleaned_response
-                })
-
-                save_analysis(
-                    selected_role,
-                    final_prompt,
-                    cleaned_response,
-                    metrics
-                )
-
-                st.rerun()
-
-        except Exception as e:
-            st.error(f"Ошибка API: {e}")
+    except Exception as e:
+        st.error(f"API error: {e}")
 
 # ==================================================
 # CHAT RENDER
 # ==================================================
 
-for message in st.session_state.messages:
-
-    if message["role"] == "user":
-
-        with st.chat_message("user"):
-            st.write("Запрос отправлен")
-
-    elif message["role"] == "assistant":
-
-        with st.chat_message("assistant"):
-
-            st.markdown(
-                message["content"]
-            )
-
-            st.download_button(
-                "📥 Скачать markdown",
-                data=message["content"],
-                file_name="qa_review.md",
-                mime="text/markdown"
-            )
-
-            with st.expander(
-                "📋 Исходный Markdown"
-            ):
-
-                st.code(
-                    message["content"],
-                    language="markdown"
-                )
-
-# ==================================================
-# ANALYTICS
-# ==================================================
-
-st.divider()
-
-st.subheader("📈 История анализов")
-
-history_df = load_history()
-
-if not history_df.empty:
-
-    st.dataframe(
-        history_df[
-            [
-                "created_at",
-                "role",
-                "problems",
-                "questions",
-                "testability",
-                "risk"
-            ]
-        ],
-        use_container_width=True
-    )
-
-    trend_fig = px.line(
-        history_df,
-        x="created_at",
-        y="risk",
-        title="Risk Trend"
-    )
-
-    st.plotly_chart(
-        trend_fig,
-        use_container_width=True
-    )
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
