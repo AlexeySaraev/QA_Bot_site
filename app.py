@@ -1,9 +1,7 @@
-
 import os
 import re
 import sqlite3
 from datetime import datetime
-from io import BytesIO
 
 import pandas as pd
 import plotly.express as px
@@ -12,30 +10,103 @@ import streamlit as st
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 
-# =========================
+# ==================================================
 # CONFIG
-# =========================
+# ==================================================
 
 st.set_page_config(
-    page_title="QA SaaS Platform",
+    page_title="AVSBOT QA Platform",
     page_icon="🚀",
     layout="wide"
 )
 
 DB_FILE = "qa_platform.db"
 
+# ==================================================
+# RESPONSIVE UI
+# ==================================================
+
+st.markdown("""
+<style>
+
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+
+.block-container {
+    max-width: 1450px;
+    padding-top: 1rem;
+    padding-bottom: 2rem;
+}
+
+.stChatMessage {
+    border-radius: 16px;
+    padding: 12px;
+}
+
+.stButton button {
+    border-radius: 12px;
+    height: 44px;
+}
+
+.stTextArea textarea {
+    border-radius: 12px;
+}
+
+.metric-card {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 14px;
+    padding: 12px;
+}
+
+div[data-testid="stSidebar"] {
+    min-width: 320px;
+}
+
+@media (max-width: 900px) {
+
+    .block-container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    div[data-testid="stSidebar"] {
+        min-width: 100% !important;
+    }
+
+    .stButton button {
+        width: 100%;
+    }
+
+    h1 {
+        font-size: 28px !important;
+    }
+
+    h2 {
+        font-size: 22px !important;
+    }
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ==================================================
+# PROMPTS
+# ==================================================
+
 DEFAULT_ANALYST_PROMPT = """
 Ты — Senior QA Analyst.
 
-Анализируй требования строго по структуре:
+Структура ответа:
 
-📌 Резюме:
-❗ Проблемы:
-❓ Вопросы:
-✅ Чек-лист:
-⏱ Оценка сроков:
+📌 Резюме
+❗ Проблемы
+❓ Вопросы
+✅ Чек-лист
+⏱ Оценка сроков
 
-В самом конце ОБЯЗАТЕЛЬНО:
+В конце:
 
 МЕТРИКИ_СТАРТ
 Проблем: [число]
@@ -46,66 +117,110 @@ DEFAULT_ANALYST_PROMPT = """
 МЕТРИКИ_КОНЕЦ
 """
 
-DEFAULT_TESTER_PROMPT = """
+DEFAULT_TESTCASE_PROMPT = """
 Ты — Senior QA Engineer.
 
 Пиши:
 - тест-кейсы
-- негативные сценарии
+- негативные проверки
 - edge-cases
-- API проверки
+- API тесты
 - security проверки
 
 Используй markdown таблицы.
 """
 
+DEFAULT_AUTOTEST_REVIEW_PROMPT = """
+Ты — Senior SDET.
+
+Проведи review автотестов.
+
+Проверь:
+- flaky tests
+- плохие assertions
+- sleeps/waits
+- архитектуру
+- page object issues
+- maintainability
+- retry problems
+- unstable selectors
+
+Ответ:
+1. Общая оценка
+2. Проблемы
+3. Улучшения
+4. Refactoring
+5. Risk score
+"""
+
+DEFAULT_CODE_REVIEW_PROMPT = """
+Ты — Senior Software Engineer.
+
+Проведи code review.
+
+Проверь:
+- SOLID
+- архитектуру
+- security
+- performance
+- error handling
+- async issues
+- duplication
+- maintainability
+- code smells
+
+Ответ должен быть структурирован.
+"""
+
+# ==================================================
+# ROLES
+# ==================================================
+
 ROLES = {
+
     "Анализ требований": {
         "prompt": DEFAULT_ANALYST_PROMPT,
         "templates": [
-            "Проверь требования к авторизации",
-            "Найди проблемы в корзине",
-            "Оцени API требования"
+            "Проверь API авторизации",
+            "Найди проблемы корзины",
+            "Оцени платежный flow"
         ]
     },
+
     "Генератор тест-кейсов": {
-        "prompt": DEFAULT_TESTER_PROMPT,
+        "prompt": DEFAULT_TESTCASE_PROMPT,
         "templates": [
-            "Сгенерируй негативные кейсы оплаты",
-            "Напиши E2E сценарий",
-            "Создай smoke checklist"
+            "Сгенерируй негативные тесты",
+            "Напиши E2E flow",
+            "Сделай smoke checklist"
+        ]
+    },
+
+    "Ревью автотестов": {
+        "prompt": DEFAULT_AUTOTEST_REVIEW_PROMPT,
+        "templates": [
+            "Проведи review Playwright тестов",
+            "Найди flaky проблемы",
+            "Проверь архитектуру framework"
+        ]
+    },
+
+    "Code Review": {
+        "prompt": DEFAULT_CODE_REVIEW_PROMPT,
+        "templates": [
+            "Проведи review Python кода",
+            "Проверь безопасность API",
+            "Найди code smells"
         ]
     }
 }
 
-# =========================
-# CSS
-# =========================
-
-st.markdown("""
-<style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-
-.block-container {
-    padding-top: 1.5rem;
-}
-
-.metric-card {
-    background-color: #1e1e1e;
-    padding: 15px;
-    border-radius: 12px;
-    border: 1px solid #333;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# =========================
-# DB
-# =========================
+# ==================================================
+# DATABASE
+# ==================================================
 
 def init_db():
+
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
 
@@ -127,8 +242,55 @@ def init_db():
     conn.commit()
     conn.close()
 
+init_db()
+
+# ==================================================
+# HELPERS
+# ==================================================
+
+def extract_metrics(text):
+
+    metrics = {
+        "problems": 0,
+        "questions": 0,
+        "testability": 0,
+        "uncertainty": 0,
+        "risk": 0
+    }
+
+    try:
+
+        if "МЕТРИКИ_СТАРТ" in text:
+
+            block = text.split(
+                "МЕТРИКИ_СТАРТ"
+            )[1].split(
+                "МЕТРИКИ_КОНЕЦ"
+            )[0]
+
+            patterns = {
+                "problems": r'Проблем[^\d]*(\d+)',
+                "questions": r'Вопросов[^\d]*(\d+)',
+                "testability": r'Тестируемость[^\d]*(\d+)',
+                "uncertainty": r'Неопределенность[^\d]*(\d+)',
+                "risk": r'Риск[^\d]*(\d+)'
+            }
+
+            for key, pattern in patterns.items():
+
+                match = re.search(pattern, block)
+
+                if match:
+                    metrics[key] = int(match.group(1))
+
+    except:
+        pass
+
+    return metrics
+
 
 def save_analysis(role, prompt, response, metrics):
+
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
 
@@ -162,103 +324,51 @@ def save_analysis(role, prompt, response, metrics):
 
 
 def load_history():
+
     conn = sqlite3.connect(DB_FILE)
+
     df = pd.read_sql_query(
         "SELECT * FROM analyses ORDER BY id DESC",
         conn
     )
+
     conn.close()
+
     return df
 
 
-init_db()
-
-# =========================
-# AUTH
-# =========================
-
-def check_auth():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.title("🔒 QA SaaS Platform")
-
-        password = st.text_input(
-            "Введите пароль",
-            type="password"
-        )
-
-        login_password = os.getenv("APP_PASSWORD", "qa2026")
-
-        if st.button("Войти"):
-            if password == login_password:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Неверный пароль")
-
-        st.stop()
-
-
-check_auth()
-
-# =========================
-# METRICS
-# =========================
-
-def extract_metrics(text):
-    metrics = {
-        "problems": 0,
-        "questions": 0,
-        "testability": 0,
-        "uncertainty": 0,
-        "risk": 0
-    }
-
-    try:
-        if "МЕТРИКИ_СТАРТ" in text:
-            block = text.split("МЕТРИКИ_СТАРТ")[1].split("МЕТРИКИ_КОНЕЦ")[0]
-
-            patterns = {
-                "problems": r'Проблем[^\d]*(\d+)',
-                "questions": r'Вопросов[^\d]*(\d+)',
-                "testability": r'Тестируемость[^\d]*(\d+)',
-                "uncertainty": r'Неопределенность[^\d]*(\d+)',
-                "risk": r'Риск[^\d]*(\d+)'
-            }
-
-            for key, pattern in patterns.items():
-                match = re.search(pattern, block, re.IGNORECASE)
-                if match:
-                    metrics[key] = int(match.group(1))
-
-    except Exception:
-        pass
-
-    return metrics
-
-
-# =========================
-# FILE READER
-# =========================
-
 def read_uploaded_file(uploaded_file):
+
     ext = uploaded_file.name.split(".")[-1].lower()
 
-    if ext in ["txt", "md"]:
+    if ext in [
+        "txt",
+        "md",
+        "py",
+        "json",
+        "yaml",
+        "yml"
+    ]:
         return uploaded_file.read().decode("utf-8")
 
     elif ext == "docx":
+
         from docx import Document
 
         doc = Document(uploaded_file)
-        return "\n".join([p.text for p in doc.paragraphs])
+
+        return "\n".join([
+            p.text for p in doc.paragraphs
+        ])
 
     elif ext == "pdf":
+
         import fitz
 
-        pdf = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+        pdf = fitz.open(
+            stream=uploaded_file.read(),
+            filetype="pdf"
+        )
 
         text = ""
 
@@ -269,13 +379,13 @@ def read_uploaded_file(uploaded_file):
 
     return ""
 
-
-# =========================
+# ==================================================
 # SIDEBAR
-# =========================
+# ==================================================
 
 with st.sidebar:
-    st.header("⚙️ Конфигурация")
+
+    st.title("🚀 AVSBOT")
 
     selected_role = st.selectbox(
         "Режим",
@@ -283,15 +393,22 @@ with st.sidebar:
     )
 
     if f"prompt_{selected_role}" not in st.session_state:
-        st.session_state[f"prompt_{selected_role}"] = ROLES[selected_role]["prompt"]
+
+        st.session_state[
+            f"prompt_{selected_role}"
+        ] = ROLES[selected_role]["prompt"]
 
     current_prompt = st.text_area(
         "System Prompt",
-        value=st.session_state[f"prompt_{selected_role}"],
-        height=220
+        value=st.session_state[
+            f"prompt_{selected_role}"
+        ],
+        height=260
     )
 
-    st.session_state[f"prompt_{selected_role}"] = current_prompt
+    st.session_state[
+        f"prompt_{selected_role}"
+    ] = current_prompt
 
     temperature = st.slider(
         "Креативность",
@@ -301,33 +418,38 @@ with st.sidebar:
         0.1
     )
 
-    if st.button("🧹 Очистить чат"):
+    if st.button(
+        "🧹 Очистить чат",
+        use_container_width=True
+    ):
         st.session_state.messages = []
         st.rerun()
 
     st.divider()
 
-    st.subheader("📚 История")
-
     history_df = load_history()
 
-    st.metric("Всего анализов", len(history_df))
+    st.metric(
+        "Всего анализов",
+        len(history_df)
+    )
 
-# =========================
+# ==================================================
 # MAIN
-# =========================
+# ==================================================
 
-st.title("🛡️ QA Requirements Analyzer")
-
-# =========================
-# DASHBOARD
-# =========================
+st.title("🛡️ QA AI Platform")
 
 if "last_metrics" not in st.session_state:
     st.session_state.last_metrics = None
 
+# ==================================================
+# DASHBOARD
+# ==================================================
+
 if st.session_state.last_metrics:
-    st.subheader("📊 QA Quality Dashboard")
+
+    st.subheader("📊 Quality Dashboard")
 
     m = st.session_state.last_metrics
 
@@ -335,9 +457,18 @@ if st.session_state.last_metrics:
 
     c1.metric("❗ Проблемы", m["problems"])
     c2.metric("❓ Вопросы", m["questions"])
-    c3.metric("🧪 Тестируемость", f'{m["testability"]}%')
-    c4.metric("🌫 Неопределенность", f'{m["uncertainty"]}%')
-    c5.metric("🔥 Риск", f'{m["risk"]}%')
+    c3.metric(
+        "🧪 Тестируемость",
+        f'{m["testability"]}%'
+    )
+    c4.metric(
+        "🌫 Неопределенность",
+        f'{m["uncertainty"]}%'
+    )
+    c5.metric(
+        "🔥 Риск",
+        f'{m["risk"]}%'
+    )
 
     chart_df = pd.DataFrame({
         "Metric": [
@@ -359,13 +490,17 @@ if st.session_state.last_metrics:
         title="Risk Analysis"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
-# =========================
-# CHAT
-# =========================
+# ==================================================
+# CHAT STATE
+# ==================================================
 
 if "messages" not in st.session_state:
+
     st.session_state.messages = [
         {
             "role": MessagesRole.SYSTEM,
@@ -375,9 +510,9 @@ if "messages" not in st.session_state:
 
 st.session_state.messages[0]["content"] = current_prompt
 
-# =========================
+# ==================================================
 # QUICK ACTIONS
-# =========================
+# ==================================================
 
 st.write("### 💡 Быстрые действия")
 
@@ -388,39 +523,62 @@ cols = st.columns(3)
 template_prompt = ""
 
 for i, template in enumerate(templates):
-    if cols[i].button(template, use_container_width=True):
+
+    if cols[i].button(
+        template,
+        use_container_width=True
+    ):
         template_prompt = template
 
-# =========================
+# ==================================================
 # FILE UPLOAD
-# =========================
+# ==================================================
 
 uploaded_file = st.file_uploader(
     "📎 Загрузить файл",
-    type=["txt", "md", "docx", "pdf"]
+    type=[
+        "txt",
+        "md",
+        "pdf",
+        "docx",
+        "py",
+        "json",
+        "yaml",
+        "yml"
+    ]
 )
 
 file_context = ""
 
 if uploaded_file:
-    file_context = read_uploaded_file(uploaded_file)
+    file_context = read_uploaded_file(
+        uploaded_file
+    )
 
-# =========================
-# INPUT
-# =========================
+# ==================================================
+# USER INPUT
+# ==================================================
 
-user_input = st.chat_input("Введите требования...")
+user_input = st.chat_input(
+    "Введите требования, код или автотесты..."
+)
 
-final_prompt = user_input if user_input else template_prompt
+final_prompt = (
+    user_input
+    if user_input
+    else template_prompt
+)
 
-# =========================
+# ==================================================
 # AI REQUEST
-# =========================
+# ==================================================
 
 if final_prompt:
+
     if file_context:
+
         final_prompt = f"""
-Контекст документа:
+Контекст файла:
 {file_context}
 
 Запрос:
@@ -432,20 +590,27 @@ if final_prompt:
         "content": final_prompt
     })
 
-    with st.spinner("🧠 AI анализирует требования..."):
+    with st.spinner(
+        "🧠 AI анализирует данные..."
+    ):
 
         try:
-            credentials = os.getenv("GIGA_CREDENTIALS")
+
+            credentials = st.secrets[
+                "GIGA_CREDENTIALS"
+            ]
 
             with GigaChat(
                 credentials=credentials
             ) as giga:
 
                 giga_messages = [
+
                     Messages(
                         role=m["role"],
                         content=m["content"]
                     )
+
                     for m in st.session_state.messages
                 ]
 
@@ -456,9 +621,13 @@ if final_prompt:
                     )
                 )
 
-                bot_response = response.choices[0].message.content
+                bot_response = response.choices[
+                    0
+                ].message.content
 
-                metrics = extract_metrics(bot_response)
+                metrics = extract_metrics(
+                    bot_response
+                )
 
                 st.session_state.last_metrics = metrics
 
@@ -483,36 +652,44 @@ if final_prompt:
         except Exception as e:
             st.error(f"Ошибка API: {e}")
 
-# =========================
-# HISTORY
-# =========================
+# ==================================================
+# CHAT RENDER
+# ==================================================
 
 for message in st.session_state.messages:
 
     if message["role"] == "user":
+
         with st.chat_message("user"):
             st.write("Запрос отправлен")
 
     elif message["role"] == "assistant":
+
         with st.chat_message("assistant"):
-            st.markdown(message["content"])
+
+            st.markdown(
+                message["content"]
+            )
 
             st.download_button(
                 "📥 Скачать markdown",
                 data=message["content"],
-                file_name="qa_analysis.md",
+                file_name="qa_review.md",
                 mime="text/markdown"
             )
 
-            with st.expander("📋 Исходный Markdown"):
+            with st.expander(
+                "📋 Исходный Markdown"
+            ):
+
                 st.code(
                     message["content"],
                     language="markdown"
                 )
 
-# =========================
+# ==================================================
 # ANALYTICS
-# =========================
+# ==================================================
 
 st.divider()
 
@@ -521,6 +698,7 @@ st.subheader("📈 История анализов")
 history_df = load_history()
 
 if not history_df.empty:
+
     st.dataframe(
         history_df[
             [
@@ -542,4 +720,7 @@ if not history_df.empty:
         title="Risk Trend"
     )
 
-    st.plotly_chart(trend_fig, use_container_width=True)
+    st.plotly_chart(
+        trend_fig,
+        use_container_width=True
+    )
