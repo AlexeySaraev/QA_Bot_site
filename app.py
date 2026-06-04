@@ -21,13 +21,21 @@ st.set_page_config(
 )
 
 # ==================================================
-# CUSTOM CSS (современный красивый дизайн)
+# CUSTOM CSS (современный красивый дизайн + скрытие элементов Streamlit)
 # ==================================================
 st.markdown('''
 <style>
+    /* Скрываем стандартные элементы Streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stDeployButton {display: none;}
+    [data-testid="stToolbar"] {visibility: hidden;}
+
+    /* Основной фон */
     .stApp {
         background: linear-gradient(180deg, #0A0C14 0%, #0F1117 100%);
     }
+
     .main .block-container {
         padding-top: 2rem;
         max-width: 1400px;
@@ -217,10 +225,4 @@ templates = [
 
 for i, template in enumerate(templates):
     if cols[i].button(template, use_container_width=True):
-        st.session_state.messages.append({"role": "user", "content": template})
-        st.rerun()
-
-# Chat
-for msg in st.session_state.messages[1:]:  # skip system
-    with st.chat_message(msg["role"]):
-        st.markdown
+        st.session_state
