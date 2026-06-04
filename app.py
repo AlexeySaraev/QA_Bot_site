@@ -32,7 +32,7 @@ st.markdown('''
         padding-top: 2rem;
         max-width: 1400px;
     }
-    
+
     /* Chat bubbles */
     .stChatMessage {
         border-radius: 18px;
@@ -71,7 +71,7 @@ st.markdown('''
         border: 1px solid #2A2F45;
         text-align: center;
     }
-    
+
     h1 {
         font-size: 2.8rem;
         background: linear-gradient(90deg, #C4C4F7, #A78BFA);
@@ -94,14 +94,14 @@ def init_db():
             c.execute('''
                 CREATE TABLE IF NOT EXISTS analyses (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT,
-                    role TEXT,
-                    prompt TEXT,
-                    response TEXT,
-                    problems INTEGER,
-                    questions INTEGER,
-                    testability INTEGER,
-                    uncertainty INTEGER,
+            created_at TEXT,
+            role TEXT,
+            prompt TEXT,
+            response TEXT,
+            problems INTEGER,
+            questions INTEGER,
+            testability INTEGER,
+            uncertainty INTEGER,
             risk INTEGER
                 )
             ''')
@@ -162,12 +162,12 @@ ROLES = {
 with st.sidebar:
     st.title("🚀 AVSBOT 2.0")
     st.caption("Intelligent QA Platform")
-    
+
     selected_role = st.selectbox("Выберите режим", list(ROLES.keys()))
-    
+
     st.divider()
     temperature = st.slider("Креативность", 0.0, 1.0, 0.7, 0.05)  # Ограничили максимум до 1.0
-    
+
     st.divider()
     st.subheader("📊 Статистика")
     try:
@@ -177,7 +177,7 @@ with st.sidebar:
     except Exception as e:
         st.caption("Статистика недоступна")
         logger.warning(f"Ошибка получения статистики: {e}")
-    
+
     if st.button("🧹 Очистить чат", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
@@ -223,7 +223,4 @@ for i, template in enumerate(templates):
 # Chat
 for msg in st.session_state.messages[1:]:  # skip system
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# Input
-user_input = st.chat_
+        st.markdown
