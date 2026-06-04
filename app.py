@@ -66,7 +66,7 @@ with st.sidebar:
     
     model_choice = st.selectbox("🧠 Модель ИИ", ["Gemini (Google)", "GigaChat (Sber)", "Grok (xAI)"])
 
-    # Получение ключей из безопасного хранилища Streamlit
+    # Получение ключей
     current_key = None
     try:
         if model_choice == "Gemini (Google)":
@@ -76,7 +76,6 @@ with st.sidebar:
         elif model_choice == "GigaChat (Sber)":
             current_key = st.secrets["GIGACHAT_KEY"]
     except KeyError:
-        # Если ключи не найдены
         pass
 
     if current_key:
@@ -108,26 +107,43 @@ if st.button("🚀 Запустить анализ"):
         with st.spinner("Идет анализ..."):
             try:
                 result = None
+                
+                # --- GigaChat Logic ---
                 if model_choice == "GigaChat (Sber)":
                     with GigaChat(credentials=current_key, verify_ssl_certs=False) as giga:
                         resp = giga.chat(f"{system_prompt}\n\n{user_input}")
                         result = resp.choices[0].message.content
+                
+                # --- Gemini Logic (ОБНОВЛЕНО) ---
                 elif model_choice == "Gemini (Google)":
-                    genai.configure(api_key=current_key)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    result = model.generate_content(f"{system_prompt}\n\n{user_input}").text
+                    try:
+                        genai.configure(api_key=current_key)
+                        # Используем модель gemini-1.5-flash-latest для актуальности
+                        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                        full_prompt = f"{system_prompt}\n\n{user_input}"
+                        response = model.generate_content(full_prompt)
+                        result = response.text
+                    except Exception as e:
+                        st.error(f"Ошибка Gemini API: {e}")
+
+                # --- Grok Logic ---
                 elif model_choice == "Grok (xAI)":
                     url = "https://api.x.ai/v1/chat/completions"
                     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {current_key}"}
-                    data = {"model": "grok-beta", "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_input}]}
+                    data = {
+                        "model": "grok-2-latest", 
+                        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_input}]
+                    }
                     response = requests.post(url, headers=headers, json=data)
-                    if response.status_code == 200: result = response.json()['choices'][0]['message']['content']
-                    else: st.error(f"Ошибка Grok: {response.text}")
+                    if response.status_code == 200:
+                        result = response.json()['choices'][0]['message']['content']
+                    else:
+                        st.error(f"Ошибка Grok: {response.text}")
                 
                 if result:
                     st.success("✅ Готово!")
                     st.markdown(f'<div class="result-card">{result}</div>', unsafe_allow_html=True)
             except Exception as e:
-                st.error(f"Ошибка: {e}")
+                st.error(f"Общая ошибка: {e}")
 
 st.markdown("<br><div style='text-align: center; color: #6b7280; font-size: 0.9em;'>Powered by AI</div>", unsafe_allow_html=True)
