@@ -7,7 +7,7 @@ from gigachat.models import Chat, Messages, MessagesRole
 st.set_page_config(
     page_title="Senior QA Ultimate Assistant",
     page_icon="🤖",
-    layout="wide"  # Сделаем экран шире, чтобы панель и чат смотрелись гармонично
+    layout="wide"  # Делаем экран шире, чтобы панель и чат смотрелись гармонично
 )
 
 # --- БОКОВАЯ ПАНЕЛЬ (SIDEBAR) ---
@@ -90,7 +90,7 @@ uploaded_file = st.file_uploader(
 
 file_context = ""
 if uploaded_file is not None:
-    # Читаем текст из файла
+    # Безопасное чтение текста из файла
     file_context = uploaded_file.read().decode("utf-8")
     st.success(f"Файл '{uploaded_file.name}' успешно прикреплен к следующему запросу!")
 
@@ -115,17 +115,54 @@ user_input = st.chat_input("Задайте вопрос по тестирова�
 final_prompt = user_input if user_input else template_query
 
 if final_prompt:
-    # Если был загружен файл, склеиваем его содержимое с вопросом пользователя
+    # Сохраняем чистый вопрос пользователя для красивого отображения на экране
+    display_prompt = user_input if user_input else template_query
+    
+    # Если был загружен файл, собираем финальный промт БЕЗ опасного f-string переноса строки
     if file_context:
-        final_prompt = f"Контекст из загруженного файла:\n
-http://googleusercontent.com/immersive_entry_chip/0
+        final_prompt = "Контекст из загруженного файла:\n" + file_context + "\n\nЗапрос пользователя: " + display_prompt
+    else:
+        final_prompt = display_prompt
+    
+    # Отображаем ввод пользователя на экране
+    with st.chat_message("user"):
+        st.markdown(display_prompt)
+        if file_context:
+            st.caption(f"📎 Был прикреплен файл: {uploaded_file.name}")
+            
+    st.session_state.messages.append({"role": "user", "content": final_prompt})
 
----
+    # Отправляем запрос в GigaChat
+    with st.chat_message("assistant"):
+        with st.spinner("Анализирую и генерирую ответ..."):
+            try:
+                credentials = os.getenv("GIGA_CREDENTIALS")
+                if not credentials:
+                    st.error("Ошибка: В Secrets не найдена переменная GIGA_CREDENTIALS!")
+                    st.stop()
 
-### Шаг 2. Сохраняем изменения и проверяем!
+                with GigaChat(credentials=credentials, verify_ssl_certs=False) as giga:
+                    giga_messages = [
+                        Messages(role=msg["role"], content=msg["content"]) 
+                        for msg in st.session_state.messages
+                    ]
+                    
+                    # Передаем кастомную температуру из ползунка
+                    payload = Chat(messages=giga_messages, temperature=temperature)
+                    response = giga.chat(payload)
+                    bot_response = response.choices[0].message.content
 
-1. Нажмите зеленую кнопку **`Commit changes`** на GitHub, чтобы сохранить обновленный `app.py`.
-2. Перейдите в ваш личный кабинет Streamlit Cloud.
-3. Поскольку код кардинально обновился, лучше один раз на всякий случай нажать на **три точки** рядом с приложением и выбрать **`Reboot app`**, чтобы обновить интерфейс.
-
-Сайт должен полностью преобразиться: слева появится меню управления, над чатом — кнопки-помощники, а снизу — область для загрузки файлов. Попробуйте потестировать и напишите, как вам новый прокачанный инструмент!
+                    st.markdown(bot_response)
+                    st.session_state.messages.append({"role": "assistant", "content": bot_response})
+                    
+                    # Кнопка мгновенного скачивания свежего ответа
+                    st.download_button(
+                        label="📥 Скачать этот ответ (.txt)",
+                        data=bot_response,
+                        file_name="qa_response.txt",
+                        mime="text/plain",
+                        key="dl_fresh"
+                    )
+                    
+            except Exception as e:
+                st.error(f"Произошла ошибка: {e}")
