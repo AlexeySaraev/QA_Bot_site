@@ -1,60 +1,77 @@
-import streamlit as st
+import os
 import sqlite3
-import pandas as pd
-import json
 from datetime import datetime
+import streamlit as st
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages
-import plotly.express as px
 
 # ==================================================
 # PAGE CONFIG
 # ==================================================
 st.set_page_config(
-    page_title="AVSBOT 2.0 — QA Intelligence",
-    page_icon="🛡️",
+    page_title="AVSBOT — Intelligent QA Platform",
+    page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ==================================================
-# CUSTOM CSS
+# CUSTOM CSS (современный красивый дизайн)
 # ==================================================
 st.markdown("""
 <style>
     .stApp {
-        background: linear-gradient(180deg, #0a0c14 0%, #0f1117 100%);
+        background: linear-gradient(180deg, #0A0C14 0%, #0F1117 100%);
     }
-    .main-header {
-        font-size: 2.8rem;
-        background: linear-gradient(90deg, #6366f1, #a855f7);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
+    .main .block-container {
+        padding-top: 2rem;
+        max-width: 1400px;
     }
+    
+    /* Chat bubbles */
     .stChatMessage {
         border-radius: 18px;
         padding: 14px 18px;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
+    .stChatMessage.user {
+        background: linear-gradient(135deg, #6366F1, #8B5CF6);
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+    .stChatMessage.assistant {
+        background: #1A1D2E;
+        border: 1px solid #2A2F45;
+        border-bottom-left-radius: 4px;
+    }
+
+    /* Buttons */
     .stButton button {
         border-radius: 12px;
         height: 48px;
         font-weight: 500;
+        transition: all 0.3s ease;
     }
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
+    }
+
+    /* Metric cards */
     .metric-card {
-        background: #161821;
-        border-radius: 16px;
+        background: #161A27;
         padding: 16px;
-        border: 1px solid #2a2f3c;
+        border-radius: 14px;
+        border: 1px solid #2A2F45;
+        text-align: center;
     }
-    .chip {
-        display: inline-block;
-        background: #1f2333;
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 0.9rem;
-        margin: 4px;
+    
+    h1 {
+        font-size: 2.8rem;
+        background: linear-gradient(90deg, #C4C4F7, #A78BFA);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -62,221 +79,137 @@ st.markdown("""
 # ==================================================
 # DATABASE
 # ==================================================
-DB_FILE = "avsbot.db"
+DB_FILE = "qa_platform.db"
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS analyses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT,
-            session_id TEXT,
             role TEXT,
-            user_prompt TEXT,
+            prompt TEXT,
             response TEXT,
             problems INTEGER,
             questions INTEGER,
             testability INTEGER,
             uncertainty INTEGER,
-            risk INTEGER,
-            overall_score REAL
+            risk INTEGER
         )
-    ''')
+    """)
     conn.commit()
     conn.close()
 
 init_db()
 
-def save_analysis(data: dict):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''
-        INSERT INTO analyses 
-        (created_at, session_id, role, user_prompt, response, problems, questions, 
-         testability, uncertainty, risk, overall_score)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        datetime.now().isoformat(),
-        data['session_id'],
-        data['role'],
-        data['user_prompt'],
-        data['response'],
-        data['problems'],
-        data['questions'],
-        data['testability'],
-        data['uncertainty'],
-        data['risk'],
-        data['overall_score']
-    ))
-    conn.commit()
-    conn.close()
-
 # ==================================================
 # ROLES & TEMPLATES
 # ==================================================
 ROLES = {
-    "Senior QA Analyst": {
-        "prompt": "Ты — Senior QA Analyst с 10+ летним опытом. Анализируй требования глубоко, находи неоднозначности, риски и пробелы.",
-        "color": "#6366f1"
+    "Анализ требований": {
+        "prompt": "Ты — Senior QA Analyst с 10-летним опытом. Анализируй требования глубоко и критически.",
+        "color": "#6366F1"
     },
-    "Test Architect": {
-        "prompt": "Ты — Test Architect. Генерируй стратегию тестирования, тест-кейсы, E2E сценарии и чек-листы.",
-        "color": "#a855f7"
+    "Генератор тестов": {
+        "prompt": "Ты — QA Automation Engineer. Генерируй качественные, покрывающие и реалистичные тест-кейсы.",
+        "color": "#10B981"
     },
-    "QA Automation Engineer": {
-        "prompt": "Ты — QA Automation Engineer. Пиши автотесты, думай о стабильности, Page Object, data-driven.",
-        "color": "#22c55e"
+    "Поиск рисков": {
+        "prompt": "Ты — Risk-Based Testing Expert. Ищи скрытые риски, неопределённости и потенциальные баги.",
+        "color": "#F59E0B"
     }
-}
-
-TEMPLATES = {
-    "Полный анализ требований": "Проведи полный анализ требований: найди неоднозначности, противоречия, пропущенные сценарии и риски.",
-    "Генерация тест-кейсов": "Сгенерируй полный набор тест-кейсов (позитивные, негативные, граничные).",
-    "Поиск рисков": "Выдели все потенциальные риски проекта и предложи mitigation plan.",
-    "Негативное тестирование": "Сгенерируй мощные негативные сценарии и edge cases."
 }
 
 # ==================================================
 # SIDEBAR
 # ==================================================
 with st.sidebar:
-    st.title("🛡️ AVSBOT 2.0")
+    st.title("🚀 AVSBOT 2.0")
     st.caption("Intelligent QA Platform")
     
-    selected_role_name = st.selectbox("Роль", list(ROLES.keys()))
-    selected_role = ROLES[selected_role_name]
-    
-    temperature = st.slider("Температура", 0.1, 1.2, 0.65, 0.05)
+    selected_role = st.selectbox("Выберите режим", list(ROLES.keys()))
     
     st.divider()
-    st.subheader("Быстрые шаблоны")
-    for name, prompt in TEMPLATES.items():
-        if st.button(name, use_container_width=True):
-            st.session_state.quick_prompt = prompt
-
-# ==================================================
-# TABS
-# ==================================================
-tab_chat, tab_analytics, tab_history, tab_settings = st.tabs([
-    "💬 Чат", "📊 Аналитика", "📜 История", "⚙️ Настройки"
-])
+    temperature = st.slider("Креативность", 0.0, 1.2, 0.7, 0.05)
+    
+    if st.button("🧹 Очистить чат", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
 
 # ==================================================
 # SESSION STATE
 # ==================================================
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "quick_prompt" not in st.session_state:
-    st.session_state.quick_prompt = ""
+
+# Update system prompt
+system_prompt = ROLES[selected_role]["prompt"]
+if not st.session_state.messages or st.session_state.messages[0]["role"] != "system":
+    st.session_state.messages.insert(0, {"role": "system", "content": system_prompt})
+else:
+    st.session_state.messages[0]["content"] = system_prompt
 
 # ==================================================
-# CHAT TAB
+# MAIN UI
 # ==================================================
-with tab_chat:
-    st.markdown(f'<h1 class="main-header">Чат с {selected_role_name}</h1>', unsafe_allow_html=True)
-    
-    # File uploader
-    uploaded_file = st.file_uploader("Прикрепить документ (TXT, PDF, DOCX)", 
-                                   type=["txt", "pdf", "docx"])
-    
-    # Display chat
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title("🛡️ AVSBOT QA Platform")
 
-    # Input
-    user_input = st.chat_input("Опишите задачу...")
+with col2:
+    st.caption(f"**Режим:** {selected_role}")
+
+# Quick Templates
+st.subheader("Быстрые шаблоны")
+cols = st.columns(4)
+templates = [
+    "Проведи полный анализ требований",
+    "Сгенерируй тест-кейсы (Positive + Negative)",
+    "Выяви риски и неопределённости",
+    "Предложи E2E сценарии"
+]
+
+for i, template in enumerate(templates):
+    if cols[i].button(template, use_container_width=True):
+        st.session_state.messages.append({"role": "user", "content": template})
+        st.rerun()
+
+# Chat
+for msg in st.session_state.messages[1:]:  # skip system
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Input
+user_input = st.chat_input("Опишите задачу или вставьте требования...")
+
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
     
-    if user_input or st.session_state.quick_prompt:
-        if st.session_state.quick_prompt:
-            user_input = st.session_state.quick_prompt
-            st.session_state.quick_prompt = ""
-        
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        
+    with st.chat_message("user"):
+        st.markdown(user_input)
+    
+    with st.chat_message("assistant"):
         with st.spinner("AVSBOT думает..."):
             try:
                 credentials = st.secrets["GIGA_CREDENTIALS"]
                 
-                system_prompt = selected_role["prompt"]
-                
-                messages = [{"role": "system", "content": system_prompt}] + st.session_state.messages
-                
                 with GigaChat(credentials=credentials, verify_ssl_certs=False) as giga:
-                    giga_messages = [Messages(role=m["role"], content=m["content"]) for m in messages]
-                    response = giga.chat(Chat(messages=giga_messages, temperature=temperature))
+                    giga_messages = [
+                        Messages(role=m["role"], content=m["content"])
+                        for m in st.session_state.messages
+                    ]
+                    
+                    response = giga.chat(Chat(
+                        messages=giga_messages, 
+                        temperature=temperature
+                    ))
+                    
                     answer = response.choices[0].message.content
-                
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-                
-                with st.chat_message("assistant"):
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
                     st.markdown(answer)
-                
-                # Auto Evaluation
-                eval_prompt = f"""
-                Оцени предыдущий ответ по шкале 1-10. Верни только JSON:
-                {{"problems": X, "questions": X, "testability": X, "uncertainty": X, "risk": X, "overall_score": X}}
-                """
-                
-                # Здесь можно сделать отдельный вызов для оценки (рекомендуется)
-                # Для экономии токенов сейчас пропустим или сделаем в одном промпте
-                
+                    
             except Exception as e:
                 st.error(f"Ошибка API: {e}")
 
-# ==================================================
-# ANALYTICS TAB
-# ==================================================
-with tab_analytics:
-    st.header("📊 Аналитика QA")
-    
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql("SELECT * FROM analyses ORDER BY created_at DESC", conn)
-    conn.close()
-    
-    if not df.empty:
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Всего анализов", len(df))
-        with col2:
-            st.metric("Средний Risk", round(df['risk'].mean(), 1))
-        with col3:
-            st.metric("Средняя Testability", round(df['testability'].mean(), 1))
-        with col4:
-            st.metric("Средний Score", round(df['overall_score'].mean(), 1))
-        
-        st.plotly_chart(px.histogram(df, x="overall_score", nbins=10, title="Распределение качества ответов"), use_container_width=True)
-    else:
-        st.info("Пока нет данных. Начните анализировать требования в чате.")
-
-# ==================================================
-# HISTORY TAB
-# ==================================================
-with tab_history:
-    st.header("📜 История анализов")
-    
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql("SELECT id, created_at, role, user_prompt, overall_score FROM analyses ORDER BY created_at DESC", conn)
-    conn.close()
-    
-    if not df.empty:
-        for _, row in df.iterrows():
-            with st.expander(f"#{row['id']} — {row['created_at'][:16]} | {row['role']} | Score: {row['overall_score']}"):
-                st.write("**Запрос:**", row['user_prompt'][:300] + "...")
-                if st.button("Загрузить в чат", key=f"load_{row['id']}"):
-                    st.warning("Функция загрузки в чат будет добавлена в следующей итерации")
-    else:
-        st.info("История пока пуста.")
-
-# ==================================================
-# SETTINGS TAB
-# ==================================================
-with tab_settings:
-    st.header("⚙️ Настройки")
-    st.write("Здесь можно будет добавить модели, API-ключи, кастомные роли и т.д.")
-
-st.caption("AVSBOT 2.0 — Built with ❤️ for QA Engineers")
+# TODO: Добавить автооценку ответа (следующий шаг)
