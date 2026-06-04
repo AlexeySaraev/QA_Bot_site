@@ -11,19 +11,24 @@ from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 
 # ==================================================
-# CONFIG
+# PAGE CONFIG
 # ==================================================
 
 st.set_page_config(
     page_title="AVSBOT QA Platform",
     page_icon="🚀",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
+
+# ==================================================
+# DATABASE
+# ==================================================
 
 DB_FILE = "qa_platform.db"
 
 # ==================================================
-# RESPONSIVE UI
+# RESPONSIVE MOBILE UI
 # ==================================================
 
 st.markdown("""
@@ -35,48 +40,73 @@ header {visibility: hidden;}
 
 .block-container {
     max-width: 1450px;
-    padding-top: 1rem;
-    padding-bottom: 2rem;
+    padding-top: 0.5rem;
+    padding-bottom: 6rem;
 }
+
+/* ===== TYPOGRAPHY ===== */
+
+html, body, [class*="css"] {
+    font-size: 15px;
+}
+
+/* ===== CHAT ===== */
 
 .stChatMessage {
     border-radius: 16px;
-    padding: 12px;
+    padding: 10px;
 }
+
+/* ===== BUTTONS ===== */
 
 .stButton button {
-    border-radius: 12px;
-    height: 44px;
+    width: 100%;
+    border-radius: 14px;
+    height: 52px;
+    font-size: 15px;
+    border: 1px solid #333;
 }
+
+/* ===== INPUTS ===== */
 
 .stTextArea textarea {
-    border-radius: 12px;
-}
-
-.metric-card {
-    background: #1e1e1e;
-    border: 1px solid #333;
     border-radius: 14px;
-    padding: 12px;
 }
 
-div[data-testid="stSidebar"] {
-    min-width: 320px;
+.stChatInput textarea {
+    font-size: 16px !important;
 }
 
-@media (max-width: 900px) {
+/* ===== SIDEBAR ===== */
+
+section[data-testid="stSidebar"] {
+    background: #0E1117;
+    border-right: 1px solid #222;
+}
+
+/* ===== METRICS ===== */
+
+[data-testid="metric-container"] {
+    border-radius: 14px;
+    padding: 10px;
+    border: 1px solid #333;
+    background: #161A23;
+}
+
+/* ===== FILE UPLOADER ===== */
+
+[data-testid="stFileUploader"] {
+    border-radius: 14px;
+}
+
+/* ===== MOBILE ===== */
+
+@media (max-width: 768px) {
 
     .block-container {
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-
-    div[data-testid="stSidebar"] {
-        min-width: 100% !important;
-    }
-
-    .stButton button {
-        width: 100%;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+        padding-top: 0.3rem;
     }
 
     h1 {
@@ -85,6 +115,51 @@ div[data-testid="stSidebar"] {
 
     h2 {
         font-size: 22px !important;
+    }
+
+    h3 {
+        font-size: 18px !important;
+    }
+
+    /* SIDEBAR OVERLAY */
+
+    section[data-testid="stSidebar"] {
+        width: 85vw !important;
+        min-width: 85vw !important;
+    }
+
+    /* BIG MOBILE BUTTONS */
+
+    .stButton button {
+        height: 54px;
+        font-size: 16px;
+    }
+
+    /* CHAT INPUT */
+
+    .stChatInputContainer {
+        background: #0E1117;
+        padding: 10px;
+        z-index: 999;
+    }
+
+    /* TABLES */
+
+    .stDataFrame {
+        overflow-x: auto;
+    }
+
+    iframe {
+        width: 100% !important;
+    }
+}
+
+/* ===== DESKTOP ===== */
+
+@media (min-width: 769px) {
+
+    section[data-testid="stSidebar"] {
+        min-width: 320px;
     }
 }
 
@@ -216,7 +291,7 @@ ROLES = {
 }
 
 # ==================================================
-# DATABASE
+# DATABASE INIT
 # ==================================================
 
 def init_db():
@@ -387,6 +462,8 @@ with st.sidebar:
 
     st.title("🚀 AVSBOT")
 
+    st.caption("QA AI Platform")
+
     selected_role = st.selectbox(
         "Режим",
         list(ROLES.keys())
@@ -439,6 +516,10 @@ with st.sidebar:
 # ==================================================
 
 st.title("🛡️ QA AI Platform")
+
+st.caption(
+    "☰ Открой меню в левом верхнем углу для выбора режима"
+)
 
 if "last_metrics" not in st.session_state:
     st.session_state.last_metrics = None
@@ -600,8 +681,10 @@ if final_prompt:
                 "GIGA_CREDENTIALS"
             ]
 
+            # FIX SSL ERROR
             with GigaChat(
-                credentials=credentials
+                credentials=credentials,
+                verify_ssl_certs=False
             ) as giga:
 
                 giga_messages = [
