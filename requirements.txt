@@ -4,3 +4,6 @@ plotly
 python-docx
 pymupdf
 gigachat
+google-generativeai
+requests
+
