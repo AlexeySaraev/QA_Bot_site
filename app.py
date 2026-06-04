@@ -1,215 +1,257 @@
-import os
-import sqlite3
-from datetime import datetime
 import streamlit as st
+import streamlit.components.v1 as components
+import google.generativeai as genai
 from gigachat import GigaChat
-from gigachat.models import Chat, Messages
+import requests
+import json
 
-# ==================================================
-# PAGE CONFIG
-# ==================================================
+# --- 1. НАСТРОЙКА СТРАНИЦЫ ---
 st.set_page_config(
-    page_title="AVSBOT — Intelligent QA Platform",
-    page_icon="🚀",
+    page_title="QA AI Assistant", 
+    page_icon="🛠️", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ==================================================
-# CUSTOM CSS (современный красивый дизайн)
-# ==================================================
-st.markdown("""
-<style>
-    .stApp {
-        background: linear-gradient(180deg, #0A0C14 0%, #0F1117 100%);
-    }
-    .main .block-container {
-        padding-top: 2rem;
-        max-width: 1400px;
-    }
-    
-    /* Chat bubbles */
-    .stChatMessage {
-        border-radius: 18px;
-        padding: 14px 18px;
-        margin-bottom: 10px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
-    .stChatMessage.user {
-        background: linear-gradient(135deg, #6366F1, #8B5CF6);
-        color: white;
-        border-bottom-right-radius: 4px;
-    }
-    .stChatMessage.assistant {
-        background: #1A1D2E;
-        border: 1px solid #2A2F45;
-        border-bottom-left-radius: 4px;
-    }
+# --- 2. CSS И JS ИНЪЕКЦИЯ ---
 
-    /* Buttons */
-    .stButton button {
-        border-radius: 12px;
-        height: 48px;
-        font-weight: 500;
-        transition: all 0.3s ease;
-    }
-    .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
-    }
+def load_custom_assets():
+    # CSS стили
+    st.markdown("""
+    <style>
+        /* Импорт шрифтов */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        /* --- Глобальные стили --- */
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif;
+            background: #f0f2f5;
+        }
 
-    /* Metric cards */
-    .metric-card {
-        background: #161A27;
-        padding: 16px;
-        border-radius: 14px;
-        border: 1px solid #2A2F45;
-        text-align: center;
-    }
-    
-    h1 {
-        font-size: 2.8rem;
-        background: linear-gradient(90deg, #C4C4F7, #A78BFA);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-</style>
-""", unsafe_allow_html=True)
+        /* --- Скрытие стандартных элементов Streamlit --- */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
+        .block-container {
+            padding-top: 2rem;
+        }
 
-# ==================================================
-# DATABASE
-# ==================================================
-DB_FILE = "qa_platform.db"
+        /* --- Стили Контейнера (Glassmorphism) --- */
+        .main .block-container {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            padding: 3rem;
+            margin-top: 20px;
+        }
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS analyses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT,
-            role TEXT,
-            prompt TEXT,
-            response TEXT,
-            problems INTEGER,
-            questions INTEGER,
-            testability INTEGER,
-            uncertainty INTEGER,
-            risk INTEGER
-        )
-    """)
-    conn.commit()
-    conn.close()
+        /* --- Заголовки --- */
+        h1 {
+            color: #111827;
+            font-weight: 800;
+            font-size: 2.5rem !important;
+            margin-bottom: 10px !important;
+        }
+        
+        h3 {
+            color: #4b5563;
+            font-weight: 500;
+        }
 
-init_db()
+        /* --- Кнопка (Gradient & Hover) --- */
+        .stButton>button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 32px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
+            width: 100%;
+        }
 
-# ==================================================
-# ROLES & TEMPLATES
-# ==================================================
-ROLES = {
-    "Анализ требований": {
-        "prompt": "Ты — Senior QA Analyst с 10-летним опытом. Анализируй требования глубоко и критически.",
-        "color": "#6366F1"
-    },
-    "Генератор тестов": {
-        "prompt": "Ты — QA Automation Engineer. Генерируй качественные, покрывающие и реалистичные тест-кейсы.",
-        "color": "#10B981"
-    },
-    "Поиск рисков": {
-        "prompt": "Ты — Risk-Based Testing Expert. Ищи скрытые риски, неопределённости и потенциальные баги.",
-        "color": "#F59E0B"
-    }
-}
+        .stButton>button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(118, 75, 162, 0.6);
+            filter: brightness(1.1);
+        }
 
-# ==================================================
-# SIDEBAR
-# ==================================================
-with st.sidebar:
-    st.title("🚀 AVSBOT 2.0")
-    st.caption("Intelligent QA Platform")
-    
-    selected_role = st.selectbox("Выберите режим", list(ROLES.keys()))
-    
-    st.divider()
-    temperature = st.slider("Креативность", 0.0, 1.2, 0.7, 0.05)
-    
-    if st.button("🧹 Очистить чат", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
+        /* --- Поля ввода --- */
+        .stTextInput>div>div>input, .stTextArea textarea {
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            transition: border-color 0.3s;
+        }
+        
+        .stTextInput>div>div>input:focus, .stTextArea textarea:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
 
-# ==================================================
-# SESSION STATE
-# ==================================================
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+        /* --- Сайдбар --- */
+        section[data-testid="stSidebar"] {
+            background-image: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            color: white;
+        }
+        
+        section[data-testid="stSidebar"] .stRadio > label,
+        section[data-testid="stSidebar"] label {
+            color: #cbd5e1 !important;
+        }
+        
+        section[data-testid="stSidebar"] h1, 
+        section[data-testid="stSidebar"] h2, 
+        section[data-testid="stSidebar"] h3 {
+            color: white !important;
+        }
+        
+        /* Явное изменение цвета текста в selectbox */
+        div[data-baseweb="select"] > div {
+            color: #1f2937 !important;
+            background-color: white;
+            border-radius: 8px;
+        }
 
-# Update system prompt
-system_prompt = ROLES[selected_role]["prompt"]
-if not st.session_state.messages or st.session_state.messages[0]["role"] != "system":
-    st.session_state.messages.insert(0, {"role": "system", "content": system_prompt})
-else:
-    st.session_state.messages[0]["content"] = system_prompt
+        /* --- Карточка результата --- */
+        .result-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 20px;
+            border-left: 5px solid #667eea;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
 
-# ==================================================
-# MAIN UI
-# ==================================================
-col1, col2 = st.columns([3, 1])
-with col1:
-    st.title("🛡️ AVSBOT QA Platform")
+        /* --- Анимация появления --- */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .element-container {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
+    # JS скрипт (скрытие хедера)
+    components.html("""
+        <script>
+            window.parent.document.querySelector('header').style.display = 'none';
+        </script>
+    """, height=0)
+
+load_custom_assets()
+
+# --- 3. ИНТЕРФЕЙС ---
+
+col1, col2 = st.columns([0.05, 0.95])
 with col2:
-    st.caption(f"**Режим:** {selected_role}")
+    st.title("QA AI Assistant")
+    st.markdown("### Профессиональный анализ требований и генерация тестов")
 
-# Quick Templates
-st.subheader("Быстрые шаблоны")
-cols = st.columns(4)
-templates = [
-    "Проведи полный анализ требований",
-    "Сгенерируй тест-кейсы (Positive + Negative)",
-    "Выяви риски и неопределённости",
-    "Предложи E2E сценарии"
-]
-
-for i, template in enumerate(templates):
-    if cols[i].button(template, use_container_width=True):
-        st.session_state.messages.append({"role": "user", "content": template})
-        st.rerun()
-
-# Chat
-for msg in st.session_state.messages[1:]:  # skip system
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# Input
-user_input = st.chat_input("Опишите задачу или вставьте требования...")
-
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
+# --- 4. БОКОВОЕ МЕНЮ ---
+with st.sidebar:
+    st.image("https://img.icons8.com/fluency/96/000000/artificial-intelligence.png", width=80)
+    st.header("Настройки")
     
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    model_choice = st.selectbox(
+        "🧠 Модель ИИ",
+        ["Gemini (Google)", "GigaChat (Sber)", "Grok (xAI)"]
+    )
+
+    api_key = None
+    giga_token = None
+
+    st.subheader("🔑 Авторизация")
     
-    with st.chat_message("assistant"):
-        with st.spinner("AVSBOT думает..."):
+    if model_choice == "Gemini (Google)":
+        api_key = st.text_input("Google AI API Key", type="password")
+    elif model_choice == "Grok (xAI)":
+        api_key = st.text_input("xAI API Key", type="password")
+    elif model_choice == "GigaChat (Sber)":
+        giga_token = st.text_input("GigaChat Token", type="password")
+
+    st.divider()
+    task = st.selectbox("🛠️ Задача", ["Анализ требований", "Генерация тест-кейсов", "Code Review"])
+
+# --- 5. ЛОГИКА ---
+
+def get_system_prompt(selected_task):
+    prompts = {
+        "Анализ требований": "Ты опытный QA. Проведи глубокий анализ требований. Найди противоречия и пропуски. Выдай структурированный отчет.",
+        "Генерация тест-кейсов": "Ты опытный QA. Сгенерируй тест-кейсы в формате таблицы (ID, Описание, Шаги, ОР).",
+        "Code Review": "Ты Senior разработчик. Найди баги, проблемы с безопасностью и предложи рефакторинг."
+    }
+    return prompts[selected_task]
+
+user_input = st.text_area("📄 Входные данные", height=200, placeholder="Вставьте требования или код здесь...")
+
+if st.button("🚀 Запустить анализ"):
+    if not user_input:
+        st.warning("Введите данные.")
+    else:
+        system_prompt = get_system_prompt(task)
+        
+        with st.spinner("Идет анализ..."):
             try:
-                credentials = st.secrets["GIGA_CREDENTIALS"]
+                result = None
                 
-                with GigaChat(credentials=credentials, verify_ssl_certs=False) as giga:
-                    giga_messages = [
-                        Messages(role=m["role"], content=m["content"])
-                        for m in st.session_state.messages
-                    ]
-                    
-                    response = giga.chat(Chat(
-                        messages=giga_messages, 
-                        temperature=temperature
-                    ))
-                    
-                    answer = response.choices[0].message.content
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-                    st.markdown(answer)
-                    
-            except Exception as e:
-                st.error(f"Ошибка API: {e}")
+                # --- GigaChat Logic ---
+                if model_choice == "GigaChat (Sber)":
+                    if not giga_token:
+                        st.error("Нужен токен GigaChat")
+                    else:
+                        with GigaChat(credentials=giga_token, verify_ssl_certs=False) as giga:
+                            payload = f"{system_prompt}\n\n{user_input}"
+                            resp = giga.chat(payload)
+                            result = resp.choices[0].message.content
 
-# TODO: Добавить автооценку ответа (следующий шаг)
+                # --- Gemini Logic ---
+                elif model_choice == "Gemini (Google)":
+                    if not api_key:
+                        st.error("Нужен ключ Gemini")
+                    else:
+                        genai.configure(api_key=api_key)
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        full_prompt = f"{system_prompt}\n\n{user_input}"
+                        result = model.generate_content(full_prompt).text
+
+                # --- Grok Logic (через requests) ---
+                elif model_choice == "Grok (xAI)":
+                    if not api_key:
+                        st.error("Нужен ключ Grok")
+                    else:
+                        url = "https://api.x.ai/v1/chat/completions"
+                        headers = {
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {api_key}"
+                        }
+                        data = {
+                            "model": "grok-beta",
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_input}
+                            ]
+                        }
+                        response = requests.post(url, headers=headers, json=data)
+                        if response.status_code == 200:
+                            result = response.json()['choices'][0]['message']['content']
+                        else:
+                            st.error(f"Ошибка Grok API: {response.text}")
+
+                if result:
+                    st.success("✅ Готово!")
+                    st.markdown(f'<div class="result-card">{result}</div>', unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error(f"Ошибка выполнения: {e}")
+
+# Футер
+st.markdown("<br><div style='text-align: center; color: #6b7280; font-size: 0.9em;'>Powered by AI</div>", unsafe_allow_html=True)
